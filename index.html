@@ -12,7 +12,11 @@
     background:radial-gradient(1200px 600px at 20% -10%,#26306a 0%,transparent 60%),var(--bg);
     color:var(--text);min-height:100vh;padding:18px;}
   .wrap{max-width:760px;margin:0 auto;}
-  header{text-align:center;margin:8px 0 14px;}
+  header{text-align:center;margin:8px 0 14px;position:relative;}
+  .refresh{position:absolute;top:0;right:0;border:1px solid #2c3566;background:var(--card);color:var(--text);
+    width:38px;height:38px;border-radius:12px;font-size:16px;cursor:pointer;transition:.15s;line-height:1}
+  .refresh:hover{background:var(--card2)}
+  .refresh:active{transform:rotate(180deg) scale(.92)}
   header h1{font-size:20px;letter-spacing:-.3px}
   header p{color:var(--muted);font-size:12px;margin-top:5px}
   .lessons{position:relative;margin-bottom:12px}
@@ -77,6 +81,7 @@
 <body>
 <div class="wrap">
   <header>
+    <button class="refresh" onclick="location.reload()" title="새로고침">🔄</button>
     <h1>🎬 영어 쉐도잉 연습</h1>
     <p>미드 스타일 필수 표현 · 레슨을 골라 연습하세요</p>
   </header>
