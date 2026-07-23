@@ -177,12 +177,21 @@ function bold(s,it){const b=LESSONS[li].bold;if(b==='phrasal')return boldPhrasal
 function data(){return LESSONS[li].data;}
 function ansOf(d){return LESSONS[li].choiceBy==='en'?d.en:d.tag;}
 
-function pickVoice(){const vs=speechSynthesis.getVoices();
-  return vs.find(v=>/en[-_]US/i.test(v.lang)&&/female|Samantha|Zira|Google US/i.test(v.name))
-    ||vs.find(v=>/en[-_]US/i.test(v.lang))||vs.find(v=>/^en/i.test(v.lang))||null;}
+function pickVoice(){const vs=speechSynthesis.getVoices();const en=vs.filter(v=>/^en/i.test(v.lang));
+  // 자연스러운 최신(온라인·신경망) 음성 우선 → 그다음 고품질 로컬 음성 → 일반 영어 음성
+  const rank=v=>{const n=(v.name+' '+v.lang).toLowerCase();let s=0;
+    if(/natural|neural|online/.test(n))s+=100;
+    if(/google/.test(n))s+=60;
+    if(/aria|jenny|libby|sonia|emma|ava|samantha/.test(n))s+=40;
+    if(/zira|david|mark|hazel/.test(n))s+=10;
+    if(/en[-_]us/.test(n))s+=8;else if(/en[-_]gb/.test(n))s+=5;
+    if(v.localService)s+=1;return s;};
+  return en.slice().sort((a,b)=>rank(b)-rank(a))[0]||null;}
 function speak(t,onend){if(!('speechSynthesis' in window)){alert('이 브라우저는 음성 재생을 지원하지 않아요');return;}
-  speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='en-US';
-  u.rate=parseFloat(document.getElementById('rate').value);const v=pickVoice();if(v)u.voice=v;
+  speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);
+  const v=pickVoice();if(v){u.voice=v;u.lang=v.lang;}else u.lang='en-US';
+  u.rate=parseFloat(document.getElementById('rate').value);
+  u.pitch=1.0;u.volume=1.0;
   if(onend)u.onend=onend;
   speechSynthesis.speak(u);}
 
@@ -212,7 +221,7 @@ function shuffle(){for(let i=list.length-1;i>0;i--){const j=Math.random()*(i+1)|
 function speakCurrent(){speak(list[cur].en);}
 
 // 자동 재생: 현재 문장을 REPEAT번 읽고 다음 문장으로 자동 이동
-const REPEAT=3;let autoPlay=false,autoToken=0;
+const REPEAT=3,GAP=2000;let autoPlay=false,autoToken=0;
 function toggleAuto(){setAuto(!autoPlay);}
 function setAuto(on){autoPlay=on;autoToken++;speechSynthesis.cancel();
   const b=document.getElementById('autoBtn');b.classList.toggle('active',on);
@@ -224,10 +233,10 @@ function autoRun(token){if(!autoPlay||token!==autoToken||!list.length)return;
   speakTimes(list[cur].en,REPEAT,token,()=>{
     if(!autoPlay||token!==autoToken)return;
     cur=(cur+1)%list.length;koShown=false;document.getElementById('ko').classList.add('hidden');
-    setTimeout(()=>autoRun(token),700);});}
+    setTimeout(()=>autoRun(token),GAP);});}
 function speakTimes(text,times,token,done){if(!autoPlay||token!==autoToken)return;
   speak(text,()=>{if(!autoPlay||token!==autoToken)return;
-    if(times>1)setTimeout(()=>speakTimes(text,times-1,token,done),450);
+    if(times>1)setTimeout(()=>speakTimes(text,times-1,token,done),GAP);
     else done();});}
 function rateLbl(){document.getElementById('rateLbl').textContent=document.getElementById('rate').value+'x';}
 
