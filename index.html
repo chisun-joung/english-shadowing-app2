@@ -15,10 +15,15 @@
   header{text-align:center;margin:8px 0 14px;}
   header h1{font-size:20px;letter-spacing:-.3px}
   header p{color:var(--muted);font-size:12px;margin-top:5px}
-  .lessons{display:flex;gap:8px;margin-bottom:12px}
-  .lessons button{flex:1;border:1px solid #2c3566;background:var(--card);color:var(--muted);
-    padding:12px 8px;border-radius:14px;font-size:12px;font-weight:700;cursor:pointer;transition:.15s;line-height:1.3}
-  .lessons button.active{background:linear-gradient(135deg,var(--accent),#5a6bd8);color:#fff;border-color:transparent}
+  .lessons{position:relative;margin-bottom:12px}
+  .lessons label{display:block;font-size:11px;font-weight:700;color:var(--muted);margin:0 0 6px 4px;letter-spacing:.3px}
+  .lessons select{width:100%;appearance:none;-webkit-appearance:none;
+    border:1px solid #2c3566;background:linear-gradient(135deg,var(--accent),#5a6bd8);color:#fff;
+    padding:13px 42px 13px 16px;border-radius:14px;font-size:14px;font-weight:700;cursor:pointer;
+    line-height:1.3;transition:.15s;box-shadow:var(--shadow)}
+  .lessons select:focus{outline:none;border-color:var(--accent2)}
+  .lessons select option{background:var(--card);color:var(--text);font-weight:600}
+  .lessons::after{content:'▾';position:absolute;right:16px;bottom:13px;color:#fff;font-size:14px;pointer-events:none}
   .tabs{display:flex;gap:8px;background:var(--card);padding:6px;border-radius:14px;margin-bottom:14px}
   .tabs button{flex:1;border:0;background:transparent;color:var(--muted);padding:10px;border-radius:10px;
     font-size:13px;font-weight:600;cursor:pointer;transition:.15s}
@@ -40,6 +45,8 @@
   .btn{border:0;border-radius:12px;padding:11px 16px;font-size:14px;font-weight:700;cursor:pointer;transition:.15s}
   .btn.play{background:var(--accent2);color:#04201c}
   .btn.ghost{background:var(--card2);color:var(--text);border:1px solid #333c6e}
+  .btn.auto{background:var(--card2);color:var(--text);border:1px solid #333c6e}
+  .btn.auto.active{background:linear-gradient(135deg,var(--accent),#5a6bd8);color:#fff;border-color:transparent}
   .btn:active{transform:scale(.96)}
   .nav{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:8px}
   .nav .btn{flex:1}
@@ -92,6 +99,7 @@
       <div class="row">
         <button class="btn play" onclick="speakCurrent()">🔊 듣기</button>
         <button class="btn ghost" onclick="toggleKo()">🇰🇷 뜻 보기</button>
+        <button class="btn auto" id="autoBtn" onclick="toggleAuto()">▶ 자동재생</button>
         <div class="speed">속도 <input type="range" min="0.5" max="1.2" step="0.1" value="0.9" id="rate" oninput="rateLbl()"><span id="rateLbl">0.9x</span></div>
       </div>
       <div class="nav">
@@ -167,19 +175,22 @@ function ansOf(d){return LESSONS[li].choiceBy==='en'?d.en:d.tag;}
 function pickVoice(){const vs=speechSynthesis.getVoices();
   return vs.find(v=>/en[-_]US/i.test(v.lang)&&/female|Samantha|Zira|Google US/i.test(v.name))
     ||vs.find(v=>/en[-_]US/i.test(v.lang))||vs.find(v=>/^en/i.test(v.lang))||null;}
-function speak(t){if(!('speechSynthesis' in window)){alert('이 브라우저는 음성 재생을 지원하지 않아요');return;}
+function speak(t,onend){if(!('speechSynthesis' in window)){alert('이 브라우저는 음성 재생을 지원하지 않아요');return;}
   speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='en-US';
   u.rate=parseFloat(document.getElementById('rate').value);const v=pickVoice();if(v)u.voice=v;
+  if(onend)u.onend=onend;
   speechSynthesis.speak(u);}
 
 function buildLessons(){const box=document.getElementById('lessons');box.innerHTML='';
-  LESSONS.forEach((L,i)=>{const b=document.createElement('button');b.className=i===li?'active':'';
-    b.textContent=L.name;b.onclick=()=>{li=i;filter='all';rebuild();};box.appendChild(b);});}
+  const lbl=document.createElement('label');lbl.textContent='레슨 선택';lbl.htmlFor='lessonSelect';box.appendChild(lbl);
+  const sel=document.createElement('select');sel.id='lessonSelect';
+  LESSONS.forEach((L,i)=>{const o=document.createElement('option');o.value=i;o.textContent=L.name;if(i===li)o.selected=true;sel.appendChild(o);});
+  sel.onchange=()=>{li=+sel.value;filter='all';rebuild();};box.appendChild(sel);}
 function buildFilters(){const box=document.getElementById('filters');box.innerHTML='';
   const gs=['all',...LESSONS[li].groups];
   gs.forEach(g=>{const b=document.createElement('button');b.className='chip'+(g===filter?' active':'');
     b.textContent=g==='all'?'전체':g;b.onclick=()=>{filter=g;applyFilter();};box.appendChild(b);});}
-function applyFilter(){list=filter==='all'?data().slice():data().filter(d=>d.g===filter);cur=0;buildFilters();render();newQuiz();}
+function applyFilter(){list=filter==='all'?data().slice():data().filter(d=>d.g===filter);cur=0;buildFilters();render();newQuiz();if(autoPlay)restartAuto();}
 function rebuild(){buildLessons();applyFilter();}
 
 function render(){const d=list[cur];if(!d)return;
@@ -190,10 +201,29 @@ function render(){const d=list[cur];if(!d)return;
   document.getElementById('bar').style.width=((cur+1)/list.length*100)+'%';}
 function toggleKo(){koShown=!koShown;document.getElementById('ko').classList.toggle('hidden',!koShown);}
 function revealKo(){koShown=true;document.getElementById('ko').classList.remove('hidden');}
-function next(){cur=(cur+1)%list.length;koShown=false;document.getElementById('ko').classList.add('hidden');render();speakCurrent();}
-function prev(){cur=(cur-1+list.length)%list.length;koShown=false;document.getElementById('ko').classList.add('hidden');render();}
-function shuffle(){for(let i=list.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[list[i],list[j]]=[list[j],list[i]];}cur=0;render();}
+function next(){cur=(cur+1)%list.length;koShown=false;document.getElementById('ko').classList.add('hidden');render();if(autoPlay)restartAuto();else speakCurrent();}
+function prev(){cur=(cur-1+list.length)%list.length;koShown=false;document.getElementById('ko').classList.add('hidden');render();if(autoPlay)restartAuto();}
+function shuffle(){for(let i=list.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[list[i],list[j]]=[list[j],list[i]];}cur=0;render();if(autoPlay)restartAuto();}
 function speakCurrent(){speak(list[cur].en);}
+
+// 자동 재생: 현재 문장을 REPEAT번 읽고 다음 문장으로 자동 이동
+const REPEAT=3;let autoPlay=false,autoToken=0;
+function toggleAuto(){setAuto(!autoPlay);}
+function setAuto(on){autoPlay=on;autoToken++;speechSynthesis.cancel();
+  const b=document.getElementById('autoBtn');b.classList.toggle('active',on);
+  b.textContent=on?'⏸ 자동재생 중':'▶ 자동재생';
+  if(on)autoRun(autoToken);}
+function restartAuto(){autoToken++;speechSynthesis.cancel();autoRun(autoToken);}
+function autoRun(token){if(!autoPlay||token!==autoToken||!list.length)return;
+  render();
+  speakTimes(list[cur].en,REPEAT,token,()=>{
+    if(!autoPlay||token!==autoToken)return;
+    cur=(cur+1)%list.length;koShown=false;document.getElementById('ko').classList.add('hidden');
+    setTimeout(()=>autoRun(token),700);});}
+function speakTimes(text,times,token,done){if(!autoPlay||token!==autoToken)return;
+  speak(text,()=>{if(!autoPlay||token!==autoToken)return;
+    if(times>1)setTimeout(()=>speakTimes(text,times-1,token,done),450);
+    else done();});}
 function rateLbl(){document.getElementById('rateLbl').textContent=document.getElementById('rate').value+'x';}
 
 let qmode='dict',q=null,right=0,total=0,answered=false;
@@ -243,7 +273,8 @@ function pickChoice(btn,chosen,correct){if(answered)return;answered=true;total++
 function nextQuiz(){newQuiz();}
 function updateScore(){document.getElementById('score').textContent='점수: '+right+' / '+total+' ('+(total?Math.round(right/total*100):0)+'%)';}
 
-function setTab(t){document.getElementById('study').style.display=t==='study'?'block':'none';
+function setTab(t){if(t!=='study'&&autoPlay)setAuto(false);
+  document.getElementById('study').style.display=t==='study'?'block':'none';
   document.getElementById('quiz').style.display=t==='quiz'?'block':'none';
   document.getElementById('tabStudy').classList.toggle('active',t==='study');
   document.getElementById('tabQuiz').classList.toggle('active',t==='quiz');
