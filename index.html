@@ -194,6 +194,13 @@ function boldGoingto(s){
 function boldCond(s){var out=s.replace(/\b(as long as|as though|as if|provided that|provided|in case|even if|only if|if only|unless|if|wish)\b/i,'<b>$1</b>');out=out.replace(/(?<!<b>)\b(would have|could have|might have|would|could|might)\b/i,'<b>$1</b>');return out;}
 // 현재 활성 레슨(전체 랜덤 모드면 합성 레슨) 반환
 function curLesson(){return randomMode&&randomLesson?randomLesson:LESSONS[li];}
+// 선택한 레슨(또는 랜덤 모드)을 저장해 새로고침 후에도 유지
+const SAVE_KEY='shadowing.lesson';
+function saveSel(){try{localStorage.setItem(SAVE_KEY,randomMode?'__random':(LESSONS[li]&&LESSONS[li].id||''));}catch(e){}}
+function restoreSel(){try{const s=localStorage.getItem(SAVE_KEY);
+  if(s==='__random'){randomMode=true;buildRandom();}
+  else if(s){const i=LESSONS.findIndex(L=>L&&L.id===s);if(i>=0)li=i;}
+}catch(e){}}
 // 모든 레슨에서 문장을 모아 섞은 뒤 100개를 뽑아 합성 레슨 구성
 function buildRandom(){const pool=[];
   LESSONS.forEach(L=>{if(L&&L.id!=='__random'&&L.data)L.data.forEach(d=>pool.push(d));});
@@ -228,7 +235,7 @@ function buildLessons(){const box=document.getElementById('lessons');box.innerHT
   const sel=document.createElement('select');sel.id='lessonSelect';
   const ro=document.createElement('option');ro.value='random';ro.textContent='🎲 전체 랜덤 100문장';if(randomMode)ro.selected=true;sel.appendChild(ro);
   LESSONS.forEach((L,i)=>{if(!L||L.id==='__random')return;const o=document.createElement('option');o.value=i;o.textContent=L.name;if(!randomMode&&i===li)o.selected=true;sel.appendChild(o);});
-  sel.onchange=()=>{if(sel.value==='random'){randomMode=true;buildRandom();}else{randomMode=false;li=+sel.value;}filter='all';rebuild();};
+  sel.onchange=()=>{if(sel.value==='random'){randomMode=true;buildRandom();}else{randomMode=false;li=+sel.value;}saveSel();filter='all';rebuild();};
   wrap.appendChild(sel);box.appendChild(wrap);
   if(randomMode){const rb=document.createElement('button');rb.className='reroll';rb.textContent='🎲 다른 100문장 다시 뽑기';
     rb.onclick=()=>{buildRandom();filter='all';applyFilter();};box.appendChild(rb);}}
@@ -335,7 +342,7 @@ document.addEventListener('keydown',function(e){
   else if(e.key==='2'){e.preventDefault();nextQuiz();}
 });
 
-buildLessons();applyFilter();rateLbl();
+restoreSel();buildLessons();applyFilter();rateLbl();
 if('speechSynthesis' in window){speechSynthesis.onvoiceschanged=()=>{};speechSynthesis.getVoices();}
 </script>
 </body>
