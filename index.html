@@ -27,7 +27,12 @@
     line-height:1.3;transition:.15s;box-shadow:var(--shadow)}
   .lessons select:focus{outline:none;border-color:var(--accent2)}
   .lessons select option{background:var(--card);color:var(--text);font-weight:600}
-  .lessons::after{content:'▾';position:absolute;right:16px;bottom:13px;color:#fff;font-size:14px;pointer-events:none}
+  .lessons .selwrap{position:relative}
+  .lessons .selwrap::after{content:'▾';position:absolute;right:16px;top:50%;transform:translateY(-50%);color:#fff;font-size:14px;pointer-events:none}
+  .lessons .reroll{margin-top:8px;width:100%;border:1px solid #2c3566;background:var(--card2);color:var(--text);
+    padding:10px;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;transition:.15s}
+  .lessons .reroll:hover{background:#242c55}
+  .lessons .reroll:active{transform:scale(.98)}
   .tabs{display:flex;gap:8px;background:var(--card);padding:6px;border-radius:14px;margin-bottom:14px}
   .tabs button{flex:1;border:0;background:transparent;color:var(--muted);padding:10px;border-radius:10px;
     font-size:13px;font-weight:600;cursor:pointer;transition:.15s}
@@ -168,6 +173,7 @@
 // 레슨 데이터는 lessons/*.js 에서 window.LESSONS 로 로드됨
 const LESSONS = window.LESSONS || [];
 let li=0, filter='all', list=[], cur=0, koShown=false;
+let randomMode=false, randomLesson=null;   // 전체 랜덤 모드
 
 const CONJ={talk:['talking','talked','talks','talk'],hang:['hanging','hung','hangs','hang'],
   turn:['turning','turned','turns','turn'],show:['showing','showed','shown','shows','show'],
@@ -186,9 +192,17 @@ function boldGoingto(s){
   return out;
 }
 function boldCond(s){var out=s.replace(/\b(as long as|as though|as if|provided that|provided|in case|even if|only if|if only|unless|if|wish)\b/i,'<b>$1</b>');out=out.replace(/(?<!<b>)\b(would have|could have|might have|would|could|might)\b/i,'<b>$1</b>');return out;}
-function bold(s,it){const b=LESSONS[li].bold;if(b==='phrasal')return boldPhrasal(s,it);if(b==='goingto')return boldGoingto(s);if(b==='supposed')return s.replace(/\b(supposed to)\b/i,'<b>$1</b>');if(b==='cond')return boldCond(s);return s;}
-function data(){return LESSONS[li].data;}
-function ansOf(d){return LESSONS[li].choiceBy==='en'?d.en:d.tag;}
+// 현재 활성 레슨(전체 랜덤 모드면 합성 레슨) 반환
+function curLesson(){return randomMode&&randomLesson?randomLesson:LESSONS[li];}
+// 모든 레슨에서 문장을 모아 섞은 뒤 100개를 뽑아 합성 레슨 구성
+function buildRandom(){const pool=[];
+  LESSONS.forEach(L=>{if(L&&L.id!=='__random'&&L.data)L.data.forEach(d=>pool.push(d));});
+  for(let i=pool.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[pool[i],pool[j]]=[pool[j],pool[i]];}
+  randomLesson={id:'__random',name:'🎲 전체 랜덤 100문장',gl:'',groups:[],bold:'',choiceBy:'en',
+    choicePrompt:'위 뜻에 맞는 영어 문장을 고르세요',data:pool.slice(0,100)};}
+function bold(s,it){const b=curLesson().bold;if(b==='phrasal')return boldPhrasal(s,it);if(b==='goingto')return boldGoingto(s);if(b==='supposed')return s.replace(/\b(supposed to)\b/i,'<b>$1</b>');if(b==='cond')return boldCond(s);return s;}
+function data(){return curLesson().data;}
+function ansOf(d){return curLesson().choiceBy==='en'?d.en:d.tag;}
 
 function pickVoice(){const vs=speechSynthesis.getVoices();const en=vs.filter(v=>/^en/i.test(v.lang));
   // 자연스러운 최신(온라인·신경망) 음성 우선 → 그다음 고품질 로컬 음성 → 일반 영어 음성
@@ -210,11 +224,16 @@ function speak(t,onend){if(!('speechSynthesis' in window)){alert('이 브라우�
 
 function buildLessons(){const box=document.getElementById('lessons');box.innerHTML='';
   const lbl=document.createElement('label');lbl.textContent='레슨 선택';lbl.htmlFor='lessonSelect';box.appendChild(lbl);
+  const wrap=document.createElement('div');wrap.className='selwrap';
   const sel=document.createElement('select');sel.id='lessonSelect';
-  LESSONS.forEach((L,i)=>{const o=document.createElement('option');o.value=i;o.textContent=L.name;if(i===li)o.selected=true;sel.appendChild(o);});
-  sel.onchange=()=>{li=+sel.value;filter='all';rebuild();};box.appendChild(sel);}
+  const ro=document.createElement('option');ro.value='random';ro.textContent='🎲 전체 랜덤 100문장';if(randomMode)ro.selected=true;sel.appendChild(ro);
+  LESSONS.forEach((L,i)=>{if(!L||L.id==='__random')return;const o=document.createElement('option');o.value=i;o.textContent=L.name;if(!randomMode&&i===li)o.selected=true;sel.appendChild(o);});
+  sel.onchange=()=>{if(sel.value==='random'){randomMode=true;buildRandom();}else{randomMode=false;li=+sel.value;}filter='all';rebuild();};
+  wrap.appendChild(sel);box.appendChild(wrap);
+  if(randomMode){const rb=document.createElement('button');rb.className='reroll';rb.textContent='🎲 다른 100문장 다시 뽑기';
+    rb.onclick=()=>{buildRandom();filter='all';applyFilter();};box.appendChild(rb);}}
 function buildFilters(){const box=document.getElementById('filters');box.innerHTML='';
-  const gs=['all',...LESSONS[li].groups];
+  const gs=['all',...curLesson().groups];
   gs.forEach(g=>{const b=document.createElement('button');b.className='chip'+(g===filter?' active':'');
     b.textContent=g==='all'?'전체':g;b.onclick=()=>{filter=g;applyFilter();};box.appendChild(b);});}
 function applyFilter(){list=filter==='all'?data().slice():data().filter(d=>d.g===filter);cur=0;buildFilters();render();newQuiz();if(autoPlay)restartAuto();}
@@ -267,8 +286,8 @@ function newQuiz(){answered=false;if(!list.length)return;
   document.getElementById('qinput').value='';
   document.getElementById('dictFb').innerHTML='';
   document.getElementById('qcko').textContent=q.ko;
-  const cb=LESSONS[li].choiceBy;
-  document.getElementById('choicePrompt').textContent=LESSONS[li].choicePrompt||(cb==='en'?'위 뜻에 맞는 속담(영어)을 고르세요':(LESSONS[li].bold==='phrasal'?'위 뜻에 알맞은 구동사를 고르세요':'위 문장에 어울리는 유형/뉘앙스를 고르세요'));
+  const cb=curLesson().choiceBy;
+  document.getElementById('choicePrompt').textContent=curLesson().choicePrompt||(cb==='en'?'위 뜻에 맞는 속담(영어)을 고르세요':(curLesson().bold==='phrasal'?'위 뜻에 알맞은 구동사를 고르세요':'위 문장에 어울리는 유형/뉘앙스를 고르세요'));
   buildChoices();
   document.getElementById('choiceFb').innerHTML='';}
 function speakQuiz(){speak(q.en);}
