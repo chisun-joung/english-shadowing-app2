@@ -112,13 +112,15 @@
         <button class="btn auto" id="autoBtn" onclick="toggleAuto()">▶ 자동재생</button>
         <div class="speed">속도 <input type="range" min="0.5" max="1.2" step="0.1" value="0.9" id="rate" oninput="rateLbl()"><span id="rateLbl">0.9x</span></div>
       </div>
+      <input class="qinput" id="typeInput" placeholder="⌨️ 문장을 그대로 입력해보세요 (Enter로 확인)" autocomplete="off" onkeydown="if(event.key==='Enter')typeEnter()">
+      <div class="feedback" id="typeFb"></div>
       <div class="nav">
         <button class="btn ghost" onclick="prev()">◀ 이전</button>
         <button class="btn ghost" onclick="shuffle()">🔀 섞기</button>
         <button class="btn ghost" onclick="next()">다음 ▶</button>
       </div>
     </div>
-    <div class="counter">문장을 클릭하면 뜻이 나와요 · 🔊로 여러 번 따라 말해보세요</div>
+    <div class="counter">문장을 클릭하면 뜻이 나와요 · 🔊로 듣고 따라 말하고, 타이핑으로도 연습해보세요</div>
   </section>
 
   <section id="quiz" style="display:none">
@@ -253,7 +255,18 @@ function render(){const d=list[cur];if(!d)return;
   document.getElementById('idx').textContent=(cur+1)+' / '+list.length;
   document.getElementById('en').innerHTML=bold(d.en,d);
   document.getElementById('ko').textContent=d.ko;
-  document.getElementById('bar').style.width=((cur+1)/list.length*100)+'%';}
+  document.getElementById('bar').style.width=((cur+1)/list.length*100)+'%';
+  document.getElementById('typeInput').value='';document.getElementById('typeFb').innerHTML='';}
+// 학습 화면 타이핑 연습: 현재 문장을 입력해 단어 단위로 채점
+function checkType(){const d=list[cur];if(!d)return;
+  const ans=norm(document.getElementById('typeInput').value),target=norm(d.en);
+  const fb=document.getElementById('typeFb');if(!ans)return;
+  if(ans===target){fb.innerHTML='<span class="ok">✅ 정확해요! Enter로 다음 문장</span>';typeDone=true;}
+  else{const tw=target.split(' '),aw=ans.split(' ');
+    const h=tw.map((w,i)=>aw[i]===w?w:'<span class="miss">'+w+'</span>').join(' ');
+    fb.innerHTML='<span class="no">❌ 다시 확인</span><br>정답: <span class="diff">'+h+'</span>';typeDone=false;}}
+let typeDone=false;
+function typeEnter(){if(typeDone){typeDone=false;next();}else checkType();}
 function toggleKo(){koShown=!koShown;document.getElementById('ko').classList.toggle('hidden',!koShown);}
 function revealKo(){koShown=true;document.getElementById('ko').classList.remove('hidden');}
 function next(){cur=(cur+1)%list.length;koShown=false;document.getElementById('ko').classList.add('hidden');render();if(autoPlay)restartAuto();else speakCurrent();}
