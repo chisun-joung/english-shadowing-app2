@@ -46,9 +46,9 @@
     box-shadow:var(--shadow);margin-bottom:14px}
   .meta{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;font-size:12px;color:var(--muted)}
   .pvtag{background:rgba(124,140,255,.18);color:#c3ccff;padding:4px 10px;border-radius:20px;font-weight:700}
-  .en{font-size:22px;line-height:1.5;font-weight:600;margin:6px 0 4px}
+  .en{font-size:clamp(28px,6vw,44px);line-height:1.4;font-weight:600;margin:6px 0 4px;word-break:keep-all}
   .en b{color:var(--accent2)}
-  .ko{font-size:15px;color:var(--muted);line-height:1.5;margin-top:10px;min-height:22px;transition:.2s}
+  .ko{font-size:18px;color:var(--muted);line-height:1.5;margin-top:12px;min-height:22px;transition:.2s}
   .ko.hidden{filter:blur(7px);opacity:.5}
   .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;align-items:center}
   .btn{border:0;border-radius:12px;padding:11px 16px;font-size:14px;font-weight:700;cursor:pointer;transition:.15s}
@@ -81,6 +81,18 @@
   .qmode button{flex:1}
   .hint{font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6}
   footer{text-align:center;color:var(--muted);font-size:11px;margin:24px 0 8px;line-height:1.6}
+  /* 자동재생 집중 모드: 현재 문장만 크게 표시하고 나머지 UI는 숨김 */
+  body.autoplay header,body.autoplay .lessons,body.autoplay .tabs,body.autoplay .controls,
+  body.autoplay .progress,body.autoplay #typeInput,body.autoplay #typeFb,
+  body.autoplay .nav,body.autoplay .counter,body.autoplay footer,
+  body.autoplay .row .btn.play,body.autoplay .row .btn.ghost,body.autoplay .row .speed{display:none}
+  body.autoplay{padding:18px}
+  body.autoplay .wrap{display:flex;flex-direction:column;justify-content:center;min-height:calc(100vh - 36px)}
+  body.autoplay .card{text-align:center;padding:56px 28px;margin-bottom:0}
+  body.autoplay .meta{justify-content:center;gap:12px}
+  body.autoplay .en{font-size:clamp(36px,7.5vw,58px)}
+  body.autoplay .ko{font-size:clamp(19px,3.5vw,26px);margin-top:20px}
+  body.autoplay .row{justify-content:center;margin-top:30px}
 </style>
 </head>
 <body>
@@ -228,10 +240,10 @@ function pickVoice(){const vs=speechSynthesis.getVoices();const en=vs.filter(v=>
     if(/en[-_]us/.test(n))s+=8;else if(/en[-_]gb/.test(n))s+=5;
     if(v.localService)s+=1;return s;};
   return en.slice().sort((a,b)=>rank(b)-rank(a))[0]||null;}
-function speak(t,onend){if(!('speechSynthesis' in window)){alert('이 브라우저는 음성 재생을 지원하지 않아요');return;}
+function speak(t,onend,rate){if(!('speechSynthesis' in window)){alert('이 브라우저는 음성 재생을 지원하지 않아요');return;}
   speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);
   const v=pickVoice();if(v){u.voice=v;u.lang=v.lang;}else u.lang='en-US';
-  u.rate=parseFloat(document.getElementById('rate').value);
+  u.rate=rate||parseFloat(document.getElementById('rate').value);
   u.pitch=1.0;u.volume=1.0;
   if(onend)u.onend=onend;
   speechSynthesis.speak(u);}
@@ -283,7 +295,8 @@ function toggleAuto(){setAuto(!autoPlay);}
 function setAuto(on){autoPlay=on;autoToken++;speechSynthesis.cancel();
   const b=document.getElementById('autoBtn');b.classList.toggle('active',on);
   b.textContent=on?'⏸ 자동재생 중':'▶ 자동재생';
-  if(on)autoRun(autoToken);}
+  document.body.classList.toggle('autoplay',on);   // 집중 모드: 현재 문장만 표시
+  if(on){koShown=false;document.getElementById('ko').classList.add('hidden');autoRun(autoToken);}}
 function restartAuto(){autoToken++;speechSynthesis.cancel();autoRun(autoToken);}
 function autoRun(token){if(!autoPlay||token!==autoToken||!list.length)return;
   render();
@@ -292,10 +305,10 @@ function autoRun(token){if(!autoPlay||token!==autoToken||!list.length)return;
     cur=(cur+1)%list.length;koShown=false;document.getElementById('ko').classList.add('hidden');
     setTimeout(()=>autoRun(token),GAP);});}
 function speakTimes(text,times,token,done){if(!autoPlay||token!==autoToken)return;
-  if(times===1)revealKo();   // 마지막 반복 재생에서는 한글 뜻을 보여줌
+  if(times===REPEAT-1)revealKo();   // 2번째 반복 재생부터 한글 뜻을 보여줌
   speak(text,()=>{if(!autoPlay||token!==autoToken)return;
     if(times>1)setTimeout(()=>speakTimes(text,times-1,token,done),GAP);
-    else done();});}
+    else done();},1.0);}   // 자동재생은 항상 1배속
 function rateLbl(){document.getElementById('rateLbl').textContent=document.getElementById('rate').value+'x';}
 
 let qmode='dict',q=null,right=0,total=0,answered=false;
