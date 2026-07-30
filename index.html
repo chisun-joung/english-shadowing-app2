@@ -291,6 +291,7 @@ function autoRun(token){if(!autoPlay||token!==autoToken||!list.length)return;
     cur=(cur+1)%list.length;koShown=false;document.getElementById('ko').classList.add('hidden');
     setTimeout(()=>autoRun(token),GAP);});}
 function speakTimes(text,times,token,done){if(!autoPlay||token!==autoToken)return;
+  if(times===1)revealKo();   // 마지막 반복 재생에서는 한글 뜻을 보여줌
   speak(text,()=>{if(!autoPlay||token!==autoToken)return;
     if(times>1)setTimeout(()=>speakTimes(text,times-1,token,done),GAP);
     else done();});}
