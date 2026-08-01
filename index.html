@@ -17,6 +17,9 @@
     width:38px;height:38px;border-radius:12px;font-size:16px;cursor:pointer;transition:.15s;line-height:1}
   .refresh:hover{background:var(--card2)}
   .refresh:active{transform:rotate(180deg) scale(.92)}
+  .refresh.sync{right:46px}
+  .refresh.sync:active{transform:scale(.92)}
+  .syncline{color:var(--muted);font-size:11px;margin-top:4px;min-height:14px}
   header h1{font-size:20px;letter-spacing:-.3px}
   header p{color:var(--muted);font-size:12px;margin-top:5px}
   .lessons{position:relative;margin-bottom:12px}
@@ -99,8 +102,10 @@
 <div class="wrap">
   <header>
     <button class="refresh" onclick="location.reload()" title="새로고침">🔄</button>
+    <button class="refresh sync" id="syncBtn" onclick="setupSync()" title="기기 간 학습 기록 동기화">☁️</button>
     <h1>🎬 영어 쉐도잉 연습</h1>
     <p>미드 스타일 필수 표현 · 레슨을 골라 연습하세요</p>
+    <p class="syncline" id="syncStatus"></p>
   </header>
 
   <div class="lessons" id="lessons"></div>
@@ -216,7 +221,7 @@ function boldCond(s){var out=s.replace(/\b(as long as|as though|as if|provided t
 function curLesson(){return randomMode&&randomLesson?randomLesson:LESSONS[li];}
 // 선택한 레슨(또는 랜덤 모드)을 저장해 새로고침 후에도 유지
 const SAVE_KEY='shadowing.lesson';
-function saveSel(){try{localStorage.setItem(SAVE_KEY,randomMode?'__random':(LESSONS[li]&&LESSONS[li].id||''));}catch(e){}}
+function saveSel(){try{localStorage.setItem(SAVE_KEY,randomMode?'__random':(LESSONS[li]&&LESSONS[li].id||''));}catch(e){}touch();}
 function restoreSel(){try{const s=localStorage.getItem(SAVE_KEY);
   if(s==='__random'){randomMode=true;buildRandom();}
   else if(s){const i=LESSONS.findIndex(L=>L&&L.id===s);if(i>=0)li=i;}
@@ -267,7 +272,7 @@ function buildFilters(){const box=document.getElementById('filters');box.innerHT
 let seen=new Set();
 function seenKey(){return 'shadowing.seen.'+(curLesson().id||'');}
 function loadSeen(){try{seen=new Set(JSON.parse(localStorage.getItem(seenKey())||'[]'));}catch(e){seen=new Set();}}
-function saveSeen(){try{localStorage.setItem(seenKey(),JSON.stringify([...seen]));}catch(e){}}
+function saveSeen(){try{localStorage.setItem(seenKey(),JSON.stringify([...seen]));}catch(e){}touch();}
 function resetSeen(){seen=new Set();saveSeen();}
 function markSeen(d){if(d&&!seen.has(d.en)){seen.add(d.en);saveSeen();updateIdx();}}
 function seenCnt(){return list.reduce((n,d)=>n+(seen.has(d.en)?1:0),0);}
@@ -396,7 +401,61 @@ document.addEventListener('keydown',function(e){
   else if(e.key===' '){e.preventDefault();next();}
 });
 
+// ── GitHub Gist 동기화: 어디서 접속해도 학습 기록을 이어감 ──
+// 기록(완료 문장·선택 레슨)을 비공개 Gist에 저장. 기기마다 토큰을 한 번만 입력하면 됨.
+const SYNC_FILE='shadowing-progress.json',SYNC_DESC='영어 쉐도잉 학습 기록 (자동 동기화)';
+const TK='shadowing.sync.token',GID='shadowing.sync.gist',LTS='shadowing.sync.ts';
+let syncTimer=null;
+function tk(){try{return localStorage.getItem(TK)||'';}catch(e){return'';}}
+function syncStatus(m){const el=document.getElementById('syncStatus');if(el)el.textContent=m;}
+function touch(){try{localStorage.setItem(LTS,String(Date.now()));}catch(e){}
+  if(tk()){clearTimeout(syncTimer);syncTimer=setTimeout(pushState,3000);}}
+function collectState(){const data={};
+  for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);
+    if(k&&k.indexOf('shadowing.')===0&&k.indexOf('shadowing.sync.')!==0)data[k]=localStorage.getItem(k);}
+  return {updatedAt:+(localStorage.getItem(LTS)||0),data};}
+function applyState(s){Object.keys(s.data||{}).forEach(k=>{try{localStorage.setItem(k,s.data[k]);}catch(e){}});
+  try{localStorage.setItem(LTS,String(s.updatedAt||0));}catch(e){}}
+function gh(path,method,body){return fetch('https://api.github.com'+path,{method:method||'GET',
+  headers:Object.assign({'Authorization':'token '+tk(),'Accept':'application/vnd.github+json'},body?{'Content-Type':'application/json'}:{}),
+  body:body?JSON.stringify(body):undefined}).then(r=>{
+    if(r.status===401){try{localStorage.removeItem(TK);}catch(e){}syncStatus('☁️ 토큰이 유효하지 않아요 — ☁️ 버튼으로 다시 설정');throw new Error('401');}
+    if(!r.ok)throw new Error('HTTP '+r.status);return r.json();});}
+async function findGist(){let id=null;try{id=localStorage.getItem(GID);}catch(e){}
+  if(id){try{return await gh('/gists/'+id);}catch(e){if(e.message==='401')throw e;try{localStorage.removeItem(GID);}catch(_){}}}
+  const ls=await gh('/gists');const g=ls.find(x=>x.files&&x.files[SYNC_FILE]);
+  if(g){try{localStorage.setItem(GID,g.id);}catch(e){}return gh('/gists/'+g.id);}
+  return null;}
+async function pushState(){if(!tk())return;syncStatus('☁️ 저장 중…');
+  const body={description:SYNC_DESC,files:{}};body.files[SYNC_FILE]={content:JSON.stringify(collectState())};
+  try{const id=localStorage.getItem(GID);
+    if(id)await gh('/gists/'+id,'PATCH',body);
+    else{body.public=false;const g=await gh('/gists','POST',body);localStorage.setItem(GID,g.id);}
+    syncStatus('☁️ 동기화됨 · '+new Date().toLocaleTimeString());
+  }catch(e){if(e.message!=='401')syncStatus('☁️ 저장 실패 — 네트워크를 확인하세요');}}
+async function pullState(){if(!tk())return;syncStatus('☁️ 불러오는 중…');
+  try{const g=await findGist();
+    if(g&&g.files&&g.files[SYNC_FILE]){
+      let c=g.files[SYNC_FILE].content;
+      if(g.files[SYNC_FILE].truncated)c=await fetch(g.files[SYNC_FILE].raw_url).then(r=>r.text());
+      const remote=JSON.parse(c||'{}');
+      if((remote.updatedAt||0)>+(localStorage.getItem(LTS)||0)){
+        applyState(remote);restoreSel();filter='all';rebuild();
+        syncStatus('☁️ 이전 학습 기록을 불러왔어요 · '+new Date().toLocaleTimeString());}
+      else{syncStatus('☁️ 최신 상태예요 · '+new Date().toLocaleTimeString());pushState();}
+    }else await pushState();   // 저장된 기록이 없으면 새로 만듦
+  }catch(e){if(e.message!=='401')syncStatus('☁️ 불러오기 실패 — 네트워크를 확인하세요');}}
+function setupSync(){
+  if(tk()){pullState();return;}   // 이미 연결됨 → 버튼은 '지금 동기화'
+  const t=prompt('기기 간 동기화를 위해 GitHub 개인 액세스 토큰(PAT)을 입력하세요.\n\n만드는 법: github.com/settings/tokens → Generate new token (classic) → "gist" 권한만 체크 → 생성된 토큰 복사\n\n토큰은 이 기기(브라우저)에만 저장됩니다.');
+  if(!t||!t.trim())return;
+  try{localStorage.setItem(TK,t.trim());}catch(e){}
+  pullState();}
+document.addEventListener('visibilitychange',()=>{   // 화면을 떠날 때 저장 대기 중이면 즉시 저장
+  if(document.visibilityState==='hidden'&&tk()&&syncTimer){clearTimeout(syncTimer);syncTimer=null;pushState();}});
+
 restoreSel();buildLessons();applyFilter();rateLbl();
+if(tk())pullState();else syncStatus('☁️ 버튼을 누르면 다른 기기와 학습 기록이 동기화돼요');
 if('speechSynthesis' in window){speechSynthesis.onvoiceschanged=()=>{};speechSynthesis.getVoices();}
 </script>
 </body>
