@@ -132,7 +132,7 @@
         <button class="btn ghost" onclick="next()">다음 ▶</button>
       </div>
     </div>
-    <div class="counter">문장을 클릭하면 뜻이 나와요 · 🔊로 듣고 따라 말하고, 타이핑으로도 연습해보세요</div>
+    <div class="counter">문장을 클릭하면 뜻이 나와요 · ⌨️ <b>1</b> 듣기 · <b>2</b> 뜻 보기 · <b>3</b> 자동재생 · <b>Space</b> 다음</div>
   </section>
 
   <section id="quiz" style="display:none">
@@ -366,13 +366,22 @@ function setTab(t){if(t!=='study'&&autoPlay)setAuto(false);
   document.getElementById('tabQuiz').classList.toggle('active',t==='quiz');
   speechSynthesis.cancel();}
 
-// keyboard shortcuts (dictation mode): 3=듣기, 1=확인, 2=다음
+// keyboard shortcuts — 퀴즈(받아쓰기): 3=듣기, 1=확인, 2=다음 · 학습: 1=듣기, 2=뜻 보기, 3=자동재생, Space=다음
 document.addEventListener('keydown',function(e){
   const quizVisible=document.getElementById('quiz').style.display!=='none';
-  if(!quizVisible||qmode!=='dict')return;
-  if(e.key==='3'){e.preventDefault();speakQuiz();}
-  else if(e.key==='1'){e.preventDefault();checkDict();}
-  else if(e.key==='2'){e.preventDefault();nextQuiz();}
+  if(quizVisible){
+    if(qmode!=='dict')return;
+    if(e.key==='3'){e.preventDefault();speakQuiz();}
+    else if(e.key==='1'){e.preventDefault();checkDict();}
+    else if(e.key==='2'){e.preventDefault();nextQuiz();}
+    return;
+  }
+  const t=e.target;
+  if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT'))return; // 타이핑 중엔 무시
+  if(e.key==='1'){e.preventDefault();speakCurrent();}
+  else if(e.key==='2'){e.preventDefault();toggleKo();}
+  else if(e.key==='3'){e.preventDefault();toggleAuto();}
+  else if(e.key===' '){e.preventDefault();next();}
 });
 
 restoreSel();buildLessons();applyFilter();rateLbl();
