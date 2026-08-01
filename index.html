@@ -84,6 +84,19 @@
   .qmode button{flex:1}
   .hint{font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6}
   footer{text-align:center;color:var(--muted);font-size:11px;margin:24px 0 8px;line-height:1.6}
+  /* CLI 모드: 터미널 스타일 따라 입력 */
+  .term{background:#0b0e1f;border:1px solid #2c3566;border-radius:14px;padding:16px;height:56vh;overflow-y:auto;
+    font-family:Consolas,"Courier New",monospace;font-size:15px;line-height:1.7;cursor:text}
+  .term .help{color:var(--muted);font-size:12px}
+  .term .sent{font-weight:700;font-size:17px;margin-top:12px;color:var(--text)}
+  .term .sent .idx{color:var(--accent)}
+  .term .u{color:#c3ccff}
+  .term .ok{color:var(--good)}
+  .term .no2{color:var(--bad)}
+  .cliLine{display:flex;gap:8px;align-items:center;margin-top:10px;background:#0b0e1f;border:1px solid #2c3566;
+    border-radius:12px;padding:12px 14px;font-family:Consolas,"Courier New",monospace;font-size:15px}
+  .cliLine .cliPrompt{color:var(--accent2);font-weight:700}
+  .cliLine input{flex:1;background:transparent;border:0;outline:none;color:var(--text);font:inherit}
   /* 자동재생 집중 모드: 현재 문장만 크게 표시하고 나머지 UI는 숨김 */
   body.autoplay header,body.autoplay .lessons,body.autoplay .tabs,body.autoplay .controls,
   body.autoplay .progress,body.autoplay #typeInput,body.autoplay #typeFb,
@@ -113,6 +126,7 @@
   <div class="tabs">
     <button id="tabStudy" class="active" onclick="setTab('study')">📖 학습·쉐도잉</button>
     <button id="tabQuiz" onclick="setTab('quiz')">✍️ 퀴즈·받아쓰기</button>
+    <button id="tabCli" onclick="setTab('cli')">⌨️ CLI 모드</button>
   </div>
 
   <div class="controls"><div class="chipwrap" id="filters"></div></div>
@@ -168,6 +182,17 @@
       </div>
     </div>
     <div class="score" id="score">점수: 0 / 0</div>
+  </section>
+
+  <section id="cli" style="display:none">
+    <div class="card" style="padding:14px">
+      <div class="term" id="term" onclick="document.getElementById('cliInput').focus()"></div>
+      <div class="cliLine">
+        <span class="cliPrompt">&gt;</span>
+        <input id="cliInput" autocomplete="off" spellcheck="false" placeholder="문장을 따라 입력하고 Enter"
+          onkeydown="if(event.key==='Enter')cliEnter()">
+      </div>
+    </div>
   </section>
 
   <footer>
@@ -278,7 +303,9 @@ function markSeen(d){if(d&&!seen.has(d.en)){seen.add(d.en);saveSeen();updateIdx(
 function seenCnt(){return list.reduce((n,d)=>n+(seen.has(d.en)?1:0),0);}
 function firstUnseenIdx(){for(let i=0;i<list.length;i++)if(!seen.has(list[i].en))return i;resetSeen();return 0;}
 function nextUnseenIdx(from){for(let k=1;k<=list.length;k++){const i=(from+k)%list.length;if(!seen.has(list[i].en))return i;}resetSeen();return (from+1)%list.length;}
-function applyFilter(){list=filter==='all'?data().slice():data().filter(d=>d.g===filter);loadSeen();cur=firstUnseenIdx();buildFilters();render();newQuiz();if(autoPlay)restartAuto();}
+function applyFilter(){list=filter==='all'?data().slice():data().filter(d=>d.g===filter);loadSeen();cur=firstUnseenIdx();buildFilters();render();newQuiz();
+  if(document.getElementById('cli').style.display!=='none')cliStart();else cliStarted=false;   // 레슨·필터 변경 시 CLI 세션 리셋
+  if(autoPlay)restartAuto();}
 function rebuild(){buildLessons();applyFilter();}
 
 function updateIdx(){document.getElementById('idx').textContent=(cur+1)+' / '+list.length+' · 완료 '+seenCnt();}
@@ -377,11 +404,36 @@ function nextQuiz(){newQuiz();}
 function updateScore(){document.getElementById('score').textContent='점수: '+right+' / '+total+' ('+(total?Math.round(right/total*100):0)+'%)';}
 
 function setTab(t){if(t!=='study'&&autoPlay)setAuto(false);
-  document.getElementById('study').style.display=t==='study'?'block':'none';
-  document.getElementById('quiz').style.display=t==='quiz'?'block':'none';
+  ['study','quiz','cli'].forEach(s=>document.getElementById(s).style.display=s===t?'block':'none');
   document.getElementById('tabStudy').classList.toggle('active',t==='study');
   document.getElementById('tabQuiz').classList.toggle('active',t==='quiz');
-  speechSynthesis.cancel();}
+  document.getElementById('tabCli').classList.toggle('active',t==='cli');
+  speechSynthesis.cancel();
+  if(t==='cli'){if(!cliStarted)cliStart();else document.getElementById('cliInput').focus();}}
+
+// ── CLI 모드: 원 문장이 출력되면 그 아래 프롬프트에 따라 입력, 기록은 위로 스크롤 ──
+let cliIdx=0,cliStarted=false;
+function termEl(){return document.getElementById('term');}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function cliPrint(html,cls){const el=document.createElement('div');if(cls)el.className=cls;
+  el.innerHTML=html;const t=termEl();t.appendChild(el);t.scrollTop=t.scrollHeight;}
+function cliStart(){cliStarted=true;termEl().innerHTML='';cliIdx=firstUnseenIdx();
+  cliPrint('영어 쉐도잉 CLI · 원 문장을 그대로 따라 입력하세요','help');
+  cliPrint('Enter: 확인 · 빈 칸에서 Enter: 다시 듣기','help');
+  cliShow();}
+function cliShow(){const d=list[cliIdx];if(!d)return;
+  cliPrint('<span class="idx">['+(cliIdx+1)+'/'+list.length+']</span> '+esc(d.en),'sent');
+  speak(d.en);document.getElementById('cliInput').focus();}
+function cliEnter(){const inp=document.getElementById('cliInput'),d=list[cliIdx];if(!d)return;
+  const raw=inp.value;
+  if(!raw.trim()){speak(d.en);return;}   // 빈 입력 → 현재 문장 다시 듣기
+  cliPrint('&gt; '+esc(raw),'u');inp.value='';
+  const ans=norm(raw),target=norm(d.en);
+  if(ans===target){cliPrint('✅ 정확해요! · '+esc(d.ko),'ok');markSeen(d);
+    cliIdx=nextUnseenIdx(cliIdx);setTimeout(cliShow,500);}
+  else{const tw=target.split(' '),aw=ans.split(' ');
+    const h=tw.map((w,i)=>aw[i]===w?w:'<span class="miss">'+w+'</span>').join(' ');
+    cliPrint('❌ 다시 입력: <span class="diff">'+h+'</span>','no2');}}
 
 // keyboard shortcuts — 퀴즈(받아쓰기): 3=듣기, 1=확인, 2=다음 · 학습: 1=듣기, 2=뜻 보기, 3=자동재생, Space=다음
 document.addEventListener('keydown',function(e){
@@ -393,6 +445,7 @@ document.addEventListener('keydown',function(e){
     else if(e.key==='2'){e.preventDefault();nextQuiz();}
     return;
   }
+  if(document.getElementById('study').style.display==='none')return; // 학습 탭에서만 동작
   const t=e.target;
   if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT'))return; // 타이핑 중엔 무시
   if(e.key==='1'){e.preventDefault();speakCurrent();}
