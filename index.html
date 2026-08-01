@@ -96,6 +96,7 @@
   .term .sent .idx{color:var(--accent)}
   .term .u{color:#c3ccff}
   .term .ok{color:var(--good)}
+  .term .mean{color:var(--accent2)}
   .term .no2{color:var(--bad)}
   .cliLine{display:flex;gap:8px;align-items:center;margin-top:10px;background:#0b0e1f;border:1px solid #2c3566;
     border-radius:12px;padding:12px 14px;font-family:Consolas,"Courier New",monospace;font-size:15px}
@@ -148,7 +149,7 @@
         <button class="btn auto" id="autoBtn" onclick="toggleAuto()">▶ 자동재생</button>
         <div class="speed">속도 <input type="range" min="0.5" max="1.2" step="0.1" value="0.9" id="rate" oninput="rateLbl()"><span id="rateLbl">0.9x</span></div>
       </div>
-      <input class="qinput" id="typeInput" placeholder="⌨️ 문장을 그대로 입력해보세요 (Enter로 확인)" autocomplete="off" onkeydown="if(event.key==='Enter')typeEnter()">
+      <input class="qinput" id="typeInput" placeholder="⌨️ 문장을 따라 입력하세요 (Enter → 뜻 확인 후 다음 문장)" autocomplete="off" onkeydown="if(event.key==='Enter')typeEnter()">
       <div class="feedback" id="typeFb"></div>
       <div class="nav">
         <button class="btn ghost" onclick="prev()">◀ 이전</button>
@@ -352,16 +353,12 @@ function render(){const d=list[cur];if(!d)return;
   document.getElementById('ko').textContent=d.ko;
   document.getElementById('bar').style.width=((cur+1)/list.length*100)+'%';
   document.getElementById('typeInput').value='';document.getElementById('typeFb').innerHTML='';}
-// 학습 화면 타이핑 연습: 현재 문장을 입력해 단어 단위로 채점
-function checkType(){const d=list[cur];if(!d)return;
-  const ans=norm(document.getElementById('typeInput').value),target=norm(d.en);
-  const fb=document.getElementById('typeFb');if(!ans)return;
-  if(ans===target){fb.innerHTML='<span class="ok">✅ 정확해요! Enter로 다음 문장</span>';typeDone=true;}
-  else{const tw=target.split(' '),aw=ans.split(' ');
-    const h=tw.map((w,i)=>aw[i]===w?w:'<span class="miss">'+w+'</span>').join(' ');
-    fb.innerHTML='<span class="no">❌ 다시 확인</span><br>정답: <span class="diff">'+h+'</span>';typeDone=false;}}
-let typeDone=false;
-function typeEnter(){if(typeDone){typeDone=false;next();}else checkType();}
+// 학습 화면 타이핑 연습: 채점 없이 Enter로 뜻을 확인하고 잠시 후 다음 문장으로
+let typeT=null;
+function typeEnter(){const d=list[cur];if(!d||typeT)return;
+  if(!document.getElementById('typeInput').value.trim())return;
+  revealKo();markSeen(d);
+  typeT=setTimeout(()=>{typeT=null;next();},1200);}
 function toggleKo(){koShown=!koShown;document.getElementById('ko').classList.toggle('hidden',!koShown);}
 function revealKo(){koShown=true;document.getElementById('ko').classList.remove('hidden');}
 function next(){const i=nextUnseenIdx(cur);if(i<0){onListDone();return;}
@@ -461,23 +458,20 @@ function cliStart(){cliStarted=true;const f=firstUnseenIdx();
   if(f<0&&list.length){onListDone();return;}
   termEl().innerHTML='';cliIdx=f<0?0:f;
   cliPrint('영어 쉐도잉 CLI · 원 문장을 그대로 따라 입력하세요','help');
-  cliPrint('Enter: 확인 · 빈 칸에서 Enter: 다시 듣기','help');
-  cliShow();}
-function cliShow(){const d=list[cliIdx];if(!d)return;
+  cliPrint('Enter: 뜻 보고 다음 문장 · 빈 칸에서 Enter: 듣기','help');
+  cliShow(false);}   // 시작할 때는 자동 재생하지 않음
+function cliShow(speakIt){const d=list[cliIdx];if(!d)return;
   cliPrint('<span class="idx">['+(cliIdx+1)+'/'+list.length+']</span> '+esc(d.en),'sent');
-  speak(d.en);document.getElementById('cliInput').focus();}
+  if(speakIt)speak(d.en);
+  document.getElementById('cliInput').focus();}
 function cliEnter(){const inp=document.getElementById('cliInput'),d=list[cliIdx];if(!d)return;
   const raw=inp.value;
   if(!raw.trim()){speak(d.en);return;}   // 빈 입력 → 현재 문장 다시 듣기
   cliPrint('&gt; '+esc(raw),'u');inp.value='';
-  const ans=norm(raw),target=norm(d.en);
-  if(ans===target){cliPrint('✅ 정확해요! · '+esc(d.ko),'ok');markSeen(d);
-    const i=nextUnseenIdx(cliIdx);
-    if(i<0){cliPrint('🎉 레슨 완료!','ok');setTimeout(onListDone,700);return;}
-    cliIdx=i;setTimeout(cliShow,500);}
-  else{const tw=target.split(' '),aw=ans.split(' ');
-    const h=tw.map((w,i)=>aw[i]===w?w:'<span class="miss">'+w+'</span>').join(' ');
-    cliPrint('❌ 다시 입력: <span class="diff">'+h+'</span>','no2');}}
+  cliPrint('💬 '+esc(d.ko),'mean');markSeen(d);   // 정답 확인 없이 바로 뜻 공개
+  const i=nextUnseenIdx(cliIdx);
+  if(i<0){cliPrint('🎉 레슨 완료!','ok');setTimeout(onListDone,700);return;}
+  cliIdx=i;setTimeout(()=>cliShow(true),400);}
 
 // keyboard shortcuts — 퀴즈(받아쓰기): 3=듣기, 1=확인, 2=다음 · 학습: 1=듣기, 2=뜻 보기, 3=자동재생, Space=다음
 document.addEventListener('keydown',function(e){
