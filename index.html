@@ -319,6 +319,8 @@ function nextIncompleteLi(){for(let k=1;k<=LESSONS.length;k++){const i=(li+k)%LE
 function clearAllSeen(){const ks=[];
   try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.indexOf('shadowing.seen.')===0)ks.push(k);}
   ks.forEach(k=>localStorage.removeItem(k));}catch(e){}
+  // 세대 번호 증가: 의도된 전체 초기화만 동기화 병합(합집합)을 이기고 전파됨
+  try{localStorage.setItem('shadowing.sync.gen',String(+(localStorage.getItem('shadowing.sync.gen')||0)+1));}catch(e){}
   seen=new Set();touch();}
 let toastT=null;
 function toast(m){const el=document.getElementById('toast');if(!el)return;
@@ -495,7 +497,7 @@ document.addEventListener('keydown',function(e){
 // ── GitHub Gist 동기화: 어디서 접속해도 학습 기록을 이어감 ──
 // 기록(완료 문장·선택 레슨)을 비공개 Gist에 저장. 기기마다 토큰을 한 번만 입력하면 됨.
 const SYNC_FILE='shadowing-progress.json',SYNC_DESC='영어 쉐도잉 학습 기록 (자동 동기화)';
-const TK='shadowing.sync.token',GID='shadowing.sync.gist',LTS='shadowing.sync.ts';
+const TK='shadowing.sync.token',GID='shadowing.sync.gist',LTS='shadowing.sync.ts',GEN='shadowing.sync.gen';
 let syncTimer=null;
 function tk(){try{return localStorage.getItem(TK)||'';}catch(e){return'';}}
 function syncStatus(m){const el=document.getElementById('syncStatus');if(el)el.textContent=m;}
@@ -504,9 +506,25 @@ function touch(){try{localStorage.setItem(LTS,String(Date.now()));}catch(e){}
 function collectState(){const data={};
   for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);
     if(k&&k.indexOf('shadowing.')===0&&k.indexOf('shadowing.sync.')!==0)data[k]=localStorage.getItem(k);}
-  return {updatedAt:+(localStorage.getItem(LTS)||0),data};}
+  return {updatedAt:+(localStorage.getItem(LTS)||0),gen:+(localStorage.getItem(GEN)||0),data};}
 function applyState(s){Object.keys(s.data||{}).forEach(k=>{try{localStorage.setItem(k,s.data[k]);}catch(e){}});
-  try{localStorage.setItem(LTS,String(s.updatedAt||0));}catch(e){}}
+  try{localStorage.setItem(LTS,String(s.updatedAt||0));localStorage.setItem(GEN,String(s.gen||0));}catch(e){}}
+// 합집합 병합: 완료 기록(seen)은 로컬∪원격 — 어느 기기에서도 기록이 줄지 않음.
+// seen 외 키(선택 레슨 등)는 타임스탬프가 최신인 쪽을 사용. 병합으로 로컬이 바뀌면 true.
+function mergeStates(remote){const rts=remote.updatedAt||0,lts=+(localStorage.getItem(LTS)||0);
+  const rd=remote.data||{};let changed=false;
+  Object.keys(rd).forEach(k=>{
+    if(k.indexOf('shadowing.seen.')===0){
+      let loc=[],rem=[];
+      try{loc=JSON.parse(localStorage.getItem(k)||'[]');}catch(e){}
+      try{rem=JSON.parse(rd[k]||'[]');}catch(e){}
+      const u=[...new Set(loc.concat(rem))];
+      if(u.length!==loc.length){try{localStorage.setItem(k,JSON.stringify(u));}catch(e){}changed=true;}
+    }else if(rts>lts&&localStorage.getItem(k)!==rd[k]){
+      try{localStorage.setItem(k,rd[k]);}catch(e){}changed=true;}
+  });
+  if(rts>lts)try{localStorage.setItem(LTS,String(rts));}catch(e){}
+  return changed;}
 function gh(path,method,body){return fetch('https://api.github.com'+path,{method:method||'GET',
   headers:Object.assign({'Authorization':'token '+tk(),'Accept':'application/vnd.github+json'},body?{'Content-Type':'application/json'}:{}),
   body:body?JSON.stringify(body):undefined}).then(r=>{
@@ -530,10 +548,14 @@ async function pullState(){if(!tk())return;syncStatus('☁️ 불러오는 중�
       let c=g.files[SYNC_FILE].content;
       if(g.files[SYNC_FILE].truncated)c=await fetch(g.files[SYNC_FILE].raw_url).then(r=>r.text());
       const remote=JSON.parse(c||'{}');
-      if((remote.updatedAt||0)>+(localStorage.getItem(LTS)||0)){
-        applyState(remote);restoreSel();filter='all';rebuild();
-        syncStatus('☁️ 이전 학습 기록을 불러왔어요 · '+new Date().toLocaleTimeString());}
-      else{syncStatus('☁️ 최신 상태예요 · '+new Date().toLocaleTimeString());pushState();}
+      const lg=+(localStorage.getItem(GEN)||0),rg=+(remote.gen||0);
+      let changed=false;
+      if(rg>lg){applyState(remote);changed=true;}        // 원격에서 의도된 전체 초기화 → 그대로 반영
+      else if(rg===lg)changed=mergeStates(remote);        // 같은 세대 → 합집합 병합 (기록이 줄지 않음)
+      // rg<lg: 이 기기에서 전체 초기화됨 → 병합 없이 로컬 기준으로 올림
+      if(changed){restoreSel();filter='all';rebuild();
+        syncStatus('☁️ 학습 기록을 병합했어요 · '+new Date().toLocaleTimeString());}
+      await pushState();   // 병합 결과를 서버에도 반영
     }else await pushState();   // 저장된 기록이 없으면 새로 만듦
   }catch(e){if(e.message!=='401')syncStatus('☁️ 불러오기 실패 — 네트워크를 확인하세요');}}
 function setupSync(){
