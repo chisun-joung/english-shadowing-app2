@@ -500,12 +500,26 @@ document.addEventListener('keydown',function(e){
 // ── GitHub Gist 동기화: 어디서 접속해도 학습 기록을 이어감 ──
 // 기록(완료 문장·선택 레슨)을 비공개 Gist에 저장. 기기마다 토큰을 한 번만 입력하면 됨.
 const SYNC_FILE='shadowing-progress.json',SYNC_DESC='영어 쉐도잉 학습 기록 (자동 동기화)';
-const TK='shadowing.sync.token',GID='shadowing.sync.gist',LTS='shadowing.sync.ts',GEN='shadowing.sync.gen';
+const TK='shadowing.sync.token',GID='shadowing.sync.gist',LTS='shadowing.sync.ts',GEN='shadowing.sync.gen',RLU='shadowing.sync.rluntil';
 let syncTimer=null;
+let pushInFlight=false,pushQueued=false,lastPushAt=0,lastPushSig='';
+const PUSH_DELAY=3000,PUSH_MIN_INTERVAL=30000;
 function tk(){try{return localStorage.getItem(TK)||'';}catch(e){return'';}}
 function syncStatus(m){const el=document.getElementById('syncStatus');if(el)el.textContent=m;}
+function getRlUntil(){try{return +(localStorage.getItem(RLU)||0);}catch(e){return 0;}}
+function setRlUntil(ms){try{localStorage.setItem(RLU,String(ms||0));}catch(e){}}
+function inCooldown(){return Date.now()<getRlUntil();}
+function showCooldown(){
+  const u=getRlUntil();
+  if(!u)return;
+  syncStatus('☁️ GitHub 한도 대기 중 · '+new Date(u).toLocaleTimeString()+' 이후 재시도');
+}
+function schedulePush(ms){
+  clearTimeout(syncTimer);
+  syncTimer=setTimeout(pushState,Math.max(0,ms||0));
+}
 function touch(){try{localStorage.setItem(LTS,String(Date.now()));}catch(e){}
-  if(tk()){clearTimeout(syncTimer);syncTimer=setTimeout(pushState,3000);}}
+  if(tk())schedulePush(PUSH_DELAY);}
 function collectState(){const data={};
   for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);
     if(k&&k.indexOf('shadowing.')===0&&k.indexOf('shadowing.sync.')!==0)data[k]=localStorage.getItem(k);}
@@ -532,10 +546,16 @@ async function gh(path,method,body){
   const r=await fetch('https://api.github.com'+path,{method:method||'GET',
     headers:Object.assign({'Authorization':'token '+tk(),'Accept':'application/vnd.github+json'},body?{'Content-Type':'application/json'}:{}),
     body:body?JSON.stringify(body):undefined});
+  const err=(status,message,extra)=>{
+    const e=new Error(message||String(status));
+    e.status=status;
+    if(extra)Object.assign(e,extra);
+    return e;
+  };
   if(r.status===401){
     try{localStorage.removeItem(TK);}catch(e){}
     syncStatus('☁️ 토큰이 유효하지 않아요 — ☁️ 버튼으로 다시 설정');
-    throw new Error('401');
+    throw err(401,'401');
   }
   if(r.status===403){
     let msg='';
@@ -543,6 +563,7 @@ async function gh(path,method,body){
     const rem=r.headers.get('x-ratelimit-remaining');
     if(rem==='0'){
       const reset=+(r.headers.get('x-ratelimit-reset')||0)*1000;
+      if(reset)setRlUntil(reset);
       const t=reset?new Date(reset).toLocaleTimeString():'';
       syncStatus('☁️ GitHub 요청 한도 초과'+(t?' · '+t+' 이후 재시도':''));
     }else if(/resource not accessible|insufficient|permission/i.test(msg)){
@@ -550,9 +571,9 @@ async function gh(path,method,body){
     }else{
       syncStatus('☁️ GitHub 접근이 거부됐어요 (403)');
     }
-    throw new Error('403');
+    throw err(403,'403',{ghMessage:msg,remaining:rem,reset:r.headers.get('x-ratelimit-reset')});
   }
-  if(!r.ok)throw new Error('HTTP '+r.status);
+  if(!r.ok)throw err(r.status,'HTTP '+r.status);
   return r.json();
 }
 async function findGist(){let id=null;try{id=localStorage.getItem(GID);}catch(e){}
@@ -560,14 +581,50 @@ async function findGist(){let id=null;try{id=localStorage.getItem(GID);}catch(e)
   const ls=await gh('/gists');const g=ls.find(x=>x.files&&x.files[SYNC_FILE]);
   if(g){try{localStorage.setItem(GID,g.id);}catch(e){}return gh('/gists/'+g.id);}
   return null;}
-async function pushState(){if(!tk())return;syncStatus('☁️ 저장 중…');
-  const body={description:SYNC_DESC,files:{}};body.files[SYNC_FILE]={content:JSON.stringify(collectState())};
-  try{const id=localStorage.getItem(GID);
-    if(id)await gh('/gists/'+id,'PATCH',body);
-    else{body.public=false;const g=await gh('/gists','POST',body);localStorage.setItem(GID,g.id);}
+async function pushState(){
+  if(!tk())return;
+  if(inCooldown()){showCooldown();return;}
+  if(pushInFlight){pushQueued=true;return;}
+  const now=Date.now();
+  const wait=PUSH_MIN_INTERVAL-(now-lastPushAt);
+  if(wait>0){schedulePush(wait);return;}
+
+  const state=collectState();
+  const sig=JSON.stringify(state);
+  if(sig===lastPushSig)return;
+
+  pushInFlight=true;
+  syncStatus('☁️ 저장 중…');
+  const body={description:SYNC_DESC,files:{}};body.files[SYNC_FILE]={content:sig};
+  try{
+    const id=localStorage.getItem(GID);
+    if(id){
+      try{await gh('/gists/'+id,'PATCH',body);}
+      catch(e){
+        if((e.status===403||e.status===404)&&e.remaining!=='0'){
+          try{localStorage.removeItem(GID);}catch(_e){}
+          body.public=false;
+          const g=await gh('/gists','POST',body);
+          localStorage.setItem(GID,g.id);
+        }else throw e;
+      }
+    }else{
+      body.public=false;
+      const g=await gh('/gists','POST',body);
+      localStorage.setItem(GID,g.id);
+    }
+    lastPushSig=sig;
+    lastPushAt=Date.now();
     syncStatus('☁️ 동기화됨 · '+new Date().toLocaleTimeString());
-  }catch(e){if(e.message!=='401')syncStatus('☁️ 저장 실패 — 네트워크를 확인하세요');}}
+  }catch(e){
+    if(e.message!=='401'&&e.message!=='403')syncStatus('☁️ 저장 실패 — 네트워크를 확인하세요');
+  }finally{
+    pushInFlight=false;
+    if(pushQueued){pushQueued=false;schedulePush(PUSH_DELAY);}
+  }
+}
 async function pullState(){if(!tk())return;syncStatus('☁️ 불러오는 중…');
+  if(inCooldown()){showCooldown();return;}
   try{const g=await findGist();
     if(g&&g.files&&g.files[SYNC_FILE]){
       let c=g.files[SYNC_FILE].content;
@@ -586,7 +643,7 @@ async function pullState(){if(!tk())return;syncStatus('☁️ 불러오는 중�
     }else await pushState();   // 저장된 기록이 없으면 새로 만듦
   }catch(e){if(e.message!=='401'&&e.message!=='403')syncStatus('☁️ 불러오기 실패 — 네트워크를 확인하세요');}}
 function setupSync(){
-  if(tk()){pullState();return;}   // 이미 연결됨 → 버튼은 '지금 동기화'
+  if(tk()){if(inCooldown())showCooldown();else pullState();return;}   // 이미 연결됨 → 버튼은 '지금 동기화'
   const t=prompt('기기 간 동기화를 위해 GitHub 개인 액세스 토큰(PAT)을 입력하세요.\n\n만드는 법: github.com/settings/tokens → Generate new token (classic) → "gist" 권한만 체크 → 생성된 토큰 복사\n\n토큰은 이 기기(브라우저)에만 저장됩니다.');
   if(!t||!t.trim())return;
   try{localStorage.setItem(TK,t.trim());}catch(e){}
@@ -595,7 +652,8 @@ document.addEventListener('visibilitychange',()=>{   // 화면을 떠날 때 저
   if(document.visibilityState==='hidden'&&tk()&&syncTimer){clearTimeout(syncTimer);syncTimer=null;pushState();}});
 
 restoreSel();buildLessons();applyFilter();rateLbl();
-if(tk())pullState();else syncStatus('☁️ 버튼을 누르면 다른 기기와 학습 기록이 동기화돼요');
+if(tk()){if(inCooldown())showCooldown();else pullState();}
+else syncStatus('☁️ 버튼을 누르면 다른 기기와 학습 기록이 동기화돼요');
 if('speechSynthesis' in window){speechSynthesis.onvoiceschanged=()=>{};speechSynthesis.getVoices();}
 </script>
 </body>
