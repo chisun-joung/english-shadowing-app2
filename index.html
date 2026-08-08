@@ -528,11 +528,33 @@ function mergeStates(remote){const rts=remote.updatedAt||0,lts=+(localStorage.ge
   });
   if(rts>lts)try{localStorage.setItem(LTS,String(rts));}catch(e){}
   return changed;}
-function gh(path,method,body){return fetch('https://api.github.com'+path,{method:method||'GET',
-  headers:Object.assign({'Authorization':'token '+tk(),'Accept':'application/vnd.github+json'},body?{'Content-Type':'application/json'}:{}),
-  body:body?JSON.stringify(body):undefined}).then(r=>{
-    if(r.status===401){try{localStorage.removeItem(TK);}catch(e){}syncStatus('☁️ 토큰이 유효하지 않아요 — ☁️ 버튼으로 다시 설정');throw new Error('401');}
-    if(!r.ok)throw new Error('HTTP '+r.status);return r.json();});}
+async function gh(path,method,body){
+  const r=await fetch('https://api.github.com'+path,{method:method||'GET',
+    headers:Object.assign({'Authorization':'token '+tk(),'Accept':'application/vnd.github+json'},body?{'Content-Type':'application/json'}:{}),
+    body:body?JSON.stringify(body):undefined});
+  if(r.status===401){
+    try{localStorage.removeItem(TK);}catch(e){}
+    syncStatus('☁️ 토큰이 유효하지 않아요 — ☁️ 버튼으로 다시 설정');
+    throw new Error('401');
+  }
+  if(r.status===403){
+    let msg='';
+    try{const d=await r.clone().json();msg=(d&&d.message)||'';}catch(e){}
+    const rem=r.headers.get('x-ratelimit-remaining');
+    if(rem==='0'){
+      const reset=+(r.headers.get('x-ratelimit-reset')||0)*1000;
+      const t=reset?new Date(reset).toLocaleTimeString():'';
+      syncStatus('☁️ GitHub 요청 한도 초과'+(t?' · '+t+' 이후 재시도':''));
+    }else if(/resource not accessible|insufficient|permission/i.test(msg)){
+      syncStatus('☁️ 토큰 권한이 부족해요 — gist 권한으로 다시 발급하세요');
+    }else{
+      syncStatus('☁️ GitHub 접근이 거부됐어요 (403)');
+    }
+    throw new Error('403');
+  }
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  return r.json();
+}
 async function findGist(){let id=null;try{id=localStorage.getItem(GID);}catch(e){}
   if(id){try{return await gh('/gists/'+id);}catch(e){if(e.message==='401')throw e;try{localStorage.removeItem(GID);}catch(_){}}}
   const ls=await gh('/gists');const g=ls.find(x=>x.files&&x.files[SYNC_FILE]);
@@ -553,14 +575,16 @@ async function pullState(){if(!tk())return;syncStatus('☁️ 불러오는 중�
       const remote=JSON.parse(c||'{}');
       const lg=+(localStorage.getItem(GEN)||0),rg=+(remote.gen||0);
       let changed=false;
+      let shouldPush=false;
       if(rg>lg){applyState(remote);changed=true;}        // 원격에서 의도된 전체 초기화 → 그대로 반영
       else if(rg===lg)changed=mergeStates(remote);        // 같은 세대 → 합집합 병합 (기록이 줄지 않음)
+      else if(rg<lg)shouldPush=true;                      // 로컬 세대가 더 최신이면 서버 갱신 필요
       // rg<lg: 이 기기에서 전체 초기화됨 → 병합 없이 로컬 기준으로 올림
       if(changed){restoreSel();filter='all';rebuild();
         syncStatus('☁️ 학습 기록을 병합했어요 · '+new Date().toLocaleTimeString());}
-      await pushState();   // 병합 결과를 서버에도 반영
+      if(changed||shouldPush)await pushState();   // 바뀐 경우에만 서버 반영
     }else await pushState();   // 저장된 기록이 없으면 새로 만듦
-  }catch(e){if(e.message!=='401')syncStatus('☁️ 불러오기 실패 — 네트워크를 확인하세요');}}
+  }catch(e){if(e.message!=='401'&&e.message!=='403')syncStatus('☁️ 불러오기 실패 — 네트워크를 확인하세요');}}
 function setupSync(){
   if(tk()){pullState();return;}   // 이미 연결됨 → 버튼은 '지금 동기화'
   const t=prompt('기기 간 동기화를 위해 GitHub 개인 액세스 토큰(PAT)을 입력하세요.\n\n만드는 법: github.com/settings/tokens → Generate new token (classic) → "gist" 권한만 체크 → 생성된 토큰 복사\n\n토큰은 이 기기(브라우저)에만 저장됩니다.');
