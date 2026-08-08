@@ -584,14 +584,17 @@ async function findGist(){let id=null;try{id=localStorage.getItem(GID);}catch(e)
 async function pushState(){
   if(!tk())return;
   if(inCooldown()){showCooldown();return;}
-  if(pushInFlight){pushQueued=true;return;}
+  if(pushInFlight){pushQueued=true;syncStatus('☁️ 저장 대기 중…');return;}
   const now=Date.now();
   const wait=PUSH_MIN_INTERVAL-(now-lastPushAt);
-  if(wait>0){schedulePush(wait);return;}
+  if(wait>0){schedulePush(wait);syncStatus('☁️ 저장 대기 중…');return;}
 
   const state=collectState();
   const sig=JSON.stringify(state);
-  if(sig===lastPushSig)return;
+  if(sig===lastPushSig){
+    syncStatus('☁️ 동기화됨 · '+new Date(lastPushAt||Date.now()).toLocaleTimeString());
+    return;
+  }
 
   pushInFlight=true;
   syncStatus('☁️ 저장 중…');
@@ -640,6 +643,7 @@ async function pullState(){if(!tk())return;syncStatus('☁️ 불러오는 중�
       if(changed){restoreSel();filter='all';rebuild();
         syncStatus('☁️ 학습 기록을 병합했어요 · '+new Date().toLocaleTimeString());}
       if(changed||shouldPush)await pushState();   // 바뀐 경우에만 서버 반영
+      else syncStatus('☁️ 최신 상태예요 · '+new Date().toLocaleTimeString());
     }else await pushState();   // 저장된 기록이 없으면 새로 만듦
   }catch(e){if(e.message!=='401'&&e.message!=='403')syncStatus('☁️ 불러오기 실패 — 네트워크를 확인하세요');}}
 function setupSync(){
